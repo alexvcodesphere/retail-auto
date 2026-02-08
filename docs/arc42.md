@@ -1,7 +1,7 @@
 # Ingestry – Arc42 Architecture Documentation
 
-> **Version:** 1.1  
-> **Date:** January 2, 2026  
+> **Version:** 2.0  
+> **Date:** February 8, 2026  
 > **Status:** Current
 
 ---
@@ -14,10 +14,11 @@
 
 **Essential Features:**
 
-- **AI-Powered Extraction**: Utilizes GPT-4o Vision to extract product data from complex PDF layouts.
-- **Spark Assistant**: A conversational AI (powered by Google Gemini) for natural language data transformation and analysis.
-- **Configurable Intake**: Dynamic Input Profiles for defining schema and extraction rules.
-- **Lookup-Based Normalization**: Fuzzy matching and alias management for consistent data.
+- **AI-Powered Extraction**: Uses Gemini 3 Flash (default) or GPT-4o Vision via AI SDK v6 with dynamic Zod schema generation from processing profiles.
+- **Spark Assistant**: A conversational AI assistant (Gemini-powered) for natural language data transformation, queries, and analysis — with native tool calling and undo support.
+- **Configurable Intake**: Dynamic Processing Profiles defining extraction schema, computed fields (templates + AI enrichment), and catalog matching rules.
+- **Catalog-Based Normalization**: Exact, alias, fuzzy, and compound value matching against catalog entries. AI-assisted matching via Catalog Match Guide injection into extraction prompts.
+- **Multi-Format Export**: Modular export with Output Profiles (CSV/JSON), field mapping, and template support — embedded directly in unified Processing Profiles.
 - **Multi-Destination Export**: Adapters for Shopware 6, Xentral ERP, and Shopify.
 - **Multi-Tenant Architecture**: Full data isolation via Supabase RLS.
 
@@ -38,7 +39,7 @@
 | **Product Managers** | Fast, accurate data ingestion; minimal manual corrections |
 | **Operations Teams** | Reliable exports; clear job status visibility             |
 | **Developers**       | Clean architecture; easy adapter development              |
-| **Tenant Admins**    | Self-service profile configuration; lookup management     |
+| **Tenant Admins**    | Self-service profile configuration; catalog management    |
 
 ---
 
@@ -46,14 +47,15 @@
 
 ### 2.1 Technical Constraints
 
-| Constraint            | Description                                                  |
-| --------------------- | ------------------------------------------------------------ |
-| **Next.js 16**        | Application built on App Router with React Server Components |
-| **TypeScript**        | Strict typing throughout the codebase                        |
-| **Supabase**          | PostgreSQL database with Row-Level Security (RLS)            |
-| **OpenAI API**        | GPT-4o Vision for primary document extraction                |
-| **Google Gemini API** | Gemini 2.0 Flash / 3.0 for "Spark" conversational features   |
-| **Vercel Deployment** | Serverless functions with timeout constraints                |
+| Constraint            | Description                                                                               |
+| --------------------- | ----------------------------------------------------------------------------------------- |
+| **Next.js 16**        | Application built on App Router with React Server Components                              |
+| **TypeScript**        | Strict typing throughout the codebase                                                     |
+| **Supabase**          | PostgreSQL database with Row-Level Security (RLS)                                         |
+| **Vercel AI SDK v6**  | Unified AI interface using `generateObject` with Zod schemas                              |
+| **Google Gemini**     | Primary AI provider: Gemini 3 Flash (extraction/Spark), Gemini 2.0 Flash (intent parsing) |
+| **OpenAI API**        | Optional GPT-4o Vision for document extraction                                            |
+| **Vercel Deployment** | Serverless functions with timeout constraints                                             |
 
 ### 2.2 Organizational Constraints
 
@@ -68,7 +70,7 @@
 | Convention           | Description                                                 |
 | -------------------- | ----------------------------------------------------------- |
 | **Field Keys**       | Lowercase with underscores (e.g., `style_code`)             |
-| **Lookups**          | Canonical names stored, codes accessed via `.code` modifier |
+| **Catalogs**         | Canonical names stored, codes accessed via `.code` modifier |
 | **Tenant Isolation** | All data tables use `tenant_id` with RLS policies           |
 
 #### UI/UX Conventions
@@ -111,8 +113,8 @@ flowchart TB
     subgraph External
         User[Product Manager]
         PDF[Order Confirmation PDFs]
-        OpenAI[OpenAI GPT-4o]
         Gemini[Google Gemini]
+        OpenAI[OpenAI GPT-4o]
         Azure[Azure Doc Intelligence]
         Shopware[Shopware 6]
         Xentral[Xentral ERP]
@@ -126,8 +128,8 @@ flowchart TB
     User -->|Uploads PDFs| App
     User -->|Chat / Transformations| App
     PDF -->|Raw Documents| App
-    App -->|Vision API Calls| OpenAI
-    App -->|Conversational API| Gemini
+    App -->|Extraction + Spark + Enrichment| Gemini
+    App -->|Vision API (optional)| OpenAI
     App -->|Document Analysis| Azure
     App -->|Product Export| Shopware
     App -->|Product Export| Xentral
@@ -150,59 +152,63 @@ flowchart LR
 
     subgraph External Services
         Supabase[(Supabase PostgreSQL)]
-        OpenAI[OpenAI API]
         Gemini[Google Gemini API]
+        OpenAI[OpenAI API]
     end
 
     UI <--> SSR
     UI <--> API
     Spark <--> API
     API <--> Supabase
-    API --> OpenAI
     API --> Gemini
+    API --> OpenAI
 ```
 
 ---
 
 ## 4. Solution Strategy
 
-### 4.1 Dual-Stage Profile Architecture
+### 4.1 Unified Profile Architecture
 
-Ingestry decouples **how data enters** (Ingestion) from **how it leaves** (Egress):
+Ingestry uses **Unified Profiles** that consolidate intake and egress configuration into a single record:
 
 ```mermaid
 flowchart LR
-    PDF[Raw Document] -->|Input Profile| Draft[Draft Order]
-    Draft -->|Human Validation / Spark| Validated[Validated Order]
-    Validated -->|Output Profile| Export[Export File / API]
+    PDF[Raw Document] -->|"Input Profile (fields, prompts)"| Draft[Draft Order]
+    Draft -->|"Human Validation / Spark"| Validated[Validated Order]
+    Validated -->|"Export Config (embedded in profile)"| Export[Export File / API]
 ```
 
-**Input Profiles** (Ingestion):
+**Input Profile** defines:
 
-- Define AI extraction prompts and field schemas
-- Configure normalization rules (lookup types)
-- Define computed fields using templates
+- Field schema for AI extraction (key, label, type, required, catalog_key)
+- Computed fields (template-based or AI enrichment)
+- SKU template and generation flag
+- Custom prompt additions
+- One or more embedded **Export Configs** (previously separate Output Profiles)
 
-**Output Profiles** (Egress):
+**Export Config** (embedded) defines:
 
-- Map internal fields to external system fields
-- Apply templates for combined values
-- Configure serialization format (CSV/JSON)
+- Target shop system
+- Field mappings (source → target with optional templates)
+- Serialization format (CSV/JSON) with format options
 
-### 4.2 Spark Architecture (Two-Phase AI)
+### 4.2 Spark Architecture (Agentic AI with Tool Calling)
 
-The "Spark" assistant uses a specialized two-phase architecture to optimize for both latency and accuracy:
+The "Spark" assistant uses a specialized architecture combining two-phase processing with native tool calling:
 
 1.  **Phase 1: Intent Parsing (Gemini 2.0 Flash)**
-
     - **Goal**: Extremely fast (<1s) determination of user intent.
-    - **Output**: Classifies request as `modification`, `question`, or `ambiguous`. Identifies specific target field keys (e.g., `price`, `color`).
-    - **Why**: avoids sending massive context windows for simple queries.
+    - **Output**: Classifies request type (modification, question, recalculation, confirmation). Identifies target fields and filtering conditions.
+    - **Why**: Avoids sending massive context windows for simple queries.
 
-2.  **Phase 2: Execution / Patch Generation (Gemini 2.5/3.0)**
-    - **Goal**: High-precision JSON patch generation.
-    - **Input**: Receive filtered data (only relevant fields identified in Phase 1).
-    - **Output**: Exact JSON patches to apply to the draft order line items.
+2.  **Phase 2: Execution via Tool Calling (Gemini 3 Flash / 2.5 Flash)**
+    - **Tools available**:
+      - `patch_items` — Update specific fields on specific items (Schema Master: validates against profile field types)
+      - `recalculate_fields` — Regenerate computed/template fields after source value changes
+      - `query_order_data` — Read-only data analysis (counts, unique values, filtering)
+      - `suggest_catalog_alias` — Suggest adding new catalog aliases (requires user confirmation)
+    - **Output**: Tool results include full updated item data for optimistic UI updates.
 
 ### 4.3 Technology Decisions
 
@@ -210,11 +216,14 @@ The "Spark" assistant uses a specialized two-phase architecture to optimize for 
 | ---------------------- | ------------------------------------------------------------------------------------ |
 | **Next.js App Router** | Unified frontend/backend, server components for performance                          |
 | **Supabase + RLS**     | Managed PostgreSQL with built-in multi-tenancy via Row-Level Security                |
-| **GPT-4o Vision**      | State-of-the-art document understanding for complex PDF layouts                      |
-| **Google Gemini**      | Superior speed/cost ratio for high-frequency conversational interaction              |
+| **Vercel AI SDK v6**   | Unified AI interface: `generateObject` with Zod schemas for type-safe extraction     |
+| **Google Gemini**      | Primary AI provider — superior speed/cost for extraction, chat, and enrichment       |
+| **GPT-4o (optional)**  | Alternative Vision model for document extraction via legacy mode                     |
+| **Zod 4**              | Runtime schema validation, dynamic schema generation from profile fields             |
 | **shadcn/ui**          | Accessible, customizable component library                                           |
 | **Tailwind CSS 4**     | Utility-first styling with design system tokens                                      |
 | **Custom DLS**         | Extending shadcn/ui with "Modern App" aesthetics (rings, gradients, semantic colors) |
+| **Framer Motion**      | Smooth animations and micro-interactions                                             |
 
 ---
 
@@ -223,17 +232,29 @@ The "Spark" assistant uses a specialized two-phase architecture to optimize for 
 ### 5.1 Level 1: System Overview
 
 ```
-voo-product-manager/
+ingestry/
 ├── src/
 │   ├── app/                    # Next.js App Router
 │   │   ├── api/                # REST API endpoints
 │   │   ├── dashboard/          # Main application UI
 │   │   └── login/              # Authentication
 │   ├── components/             # React components
+│   │   ├── layout/             # Page containers & headers
+│   │   ├── orders/flow/        # DraftOrderGrid, Spark UI
+│   │   ├── settings/           # Profile editor tabs
+│   │   └── ui/                 # shadcn/ui + custom components
+│   ├── hooks/                  # React hooks
 │   ├── lib/                    # Core business logic
+│   │   ├── adapters/           # Shop system integrations
+│   │   ├── export/             # Output Profile evaluation & serialization
+│   │   ├── extraction/         # AI clients, Spark engine, prompt building
+│   │   ├── import/             # CSV parsing
+│   │   ├── modules/processing/ # Pipeline & normalizer
+│   │   ├── services/           # Template engine, catalog reconciler, AI enrichment
+│   │   └── supabase/           # Database clients
 │   └── types/                  # TypeScript definitions
 ├── supabase/
-│   └── migrations/             # Database schema
+│   └── migrations/             # Database schema (23 migrations)
 └── public/                     # Static assets
 ```
 
@@ -241,30 +262,58 @@ voo-product-manager/
 
 #### API Layer (`src/app/api/`)
 
-| Module          | Responsibility                                    |
-| --------------- | ------------------------------------------------- |
-| `draft-orders/` | Order CRUD, line item management, export triggers |
-| `jobs/`         | Background job status and monitoring              |
-| `lookups/`      | Lookup CRUD and normalization testing             |
-| `settings/`     | Input/Output profile management                   |
+| Module          | Responsibility                                                  |
+| --------------- | --------------------------------------------------------------- |
+| `catalogs/`     | Catalog entry management, alias creation, normalization testing |
+| `draft-orders/` | Order CRUD, line item management, Spark chat, export triggers   |
+| `export/`       | File export generation using embedded Output Profiles           |
+| `jobs/`         | Background job status and monitoring                            |
+| `settings/`     | Input Profile management, vision model configuration            |
+| `tenant/`       | Tenant member listing, data reset                               |
 
-#### Business Logic (`src/lib/`)
+#### Extraction Layer (`src/lib/extraction/`)
 
-| Module                | Responsibility                                          |
-| --------------------- | ------------------------------------------------------- |
-| `extraction/`         | AI Client logic (`spark-client.ts`, `openai-client.ts`) |
-| `modules/processing/` | Normalization pipeline, validation                      |
-| `services/`           | Template engine, lookup normalizer, tenant service      |
-| `adapters/`           | Shop system integrations (Shopware, Xentral, Shopify)   |
-| `export/`             | Output profile evaluation, serialization                |
+| Module                 | Responsibility                                             |
+| ---------------------- | ---------------------------------------------------------- |
+| `index.ts`             | Unified extraction interface (AI SDK or legacy mode)       |
+| `ai-sdk-extraction.ts` | AI SDK v6 with dynamic Zod schema from profile fields      |
+| `spark-client.ts`      | Two-phase Spark engine (intent parsing → patch generation) |
+| `spark-tools.ts`       | Native tool schemas using Schema Master pattern            |
+| `prompt-builder.ts`    | Dynamic prompt generation from processing profiles         |
+| `profile-guesser.ts`   | AI-powered schema suggestion from sample documents         |
+| `unified-ai-client.ts` | Central AI model instances (Spark, Extraction, Intent)     |
+| `openai-client.ts`     | Legacy OpenAI Vision client                                |
+| `gemini-client.ts`     | Legacy Gemini Vision client                                |
+
+#### Business Logic (`src/lib/services/` + `src/lib/modules/`)
+
+| Module                          | Responsibility                                                    |
+| ------------------------------- | ----------------------------------------------------------------- |
+| `modules/processing/`           | Processing pipeline orchestration, normalizer                     |
+| `services/template-engine`      | SKU template parsing, code resolution, evaluation                 |
+| `services/catalog-reconciler`   | Catalog matching (exact, alias, fuzzy, compound), cache, AI guide |
+| `services/ai-enrichment`        | AI-generated computed field values via Gemini                     |
+| `services/regenerate-templates` | Template & AI enrichment regeneration for line items              |
+| `services/draft-order.service`  | Draft order CRUD, shop submission                                 |
+| `services/tenant.service`       | Multi-tenant context management                                   |
+
+#### Export & Adapters
+
+| Module          | Responsibility                                              |
+| --------------- | ----------------------------------------------------------- |
+| `lib/export/`   | Output Profile evaluation, field mapping, CSV serialization |
+| `lib/adapters/` | Shop system integrations (Shopware 6, Xentral, Shopify)     |
+| `lib/import/`   | CSV parser with automatic delimiter detection               |
 
 #### UI Components (`src/components/`)
 
-| Module         | Responsibility                          |
-| -------------- | --------------------------------------- |
-| `orders/flow/` | DraftOrderGrid, IngestrySpark (Chat UI) |
-| `ui/`          | shadcn/ui base components               |
-| `validation/`  | Confidence indicators, warning displays |
+| Module         | Responsibility                                                           |
+| -------------- | ------------------------------------------------------------------------ |
+| `layout/`      | PageHeader, SubPageHeader, PageContainer                                 |
+| `orders/flow/` | DraftOrderGrid, IngestrySpark (Chat UI), FloatingActionBar, EditableCell |
+| `orders/`      | ExportDialog                                                             |
+| `settings/`    | IntakeTab, TransformTab, ExportTab, ProfilePreviewTable                  |
+| `ui/`          | shadcn/ui base + LineageBadge, SourceTooltip, TemplateInput              |
 
 ---
 
@@ -278,16 +327,18 @@ sequenceDiagram
     participant UI as Dashboard
     participant API as /api/draft-orders
     participant Pipeline as Processing Pipeline
-    participant GPT as OpenAI
+    participant AI as Gemini (AI SDK v6)
     participant DB as Supabase
 
     User->>UI: Upload PDF + Select Profile
     UI->>API: POST /draft-orders
     API->>DB: Create Job (pending)
     API->>Pipeline: processDocument()
-    Pipeline->>GPT: Vision API Request
-    GPT-->>Pipeline: Extracted JSON
-    Pipeline->>Pipeline: Normalize & Validate
+    Pipeline->>Pipeline: Build prompt from profile + catalog guide
+    Pipeline->>AI: generateObject(schema, pdf)
+    AI-->>Pipeline: Typed extraction result
+    Pipeline->>Pipeline: Normalize via catalog reconciler
+    Pipeline->>Pipeline: Generate computed fields (templates + AI enrichment)
     Pipeline->>DB: Create Draft Order + Line Items
     Pipeline->>DB: Update Job (completed)
     UI->>DB: Poll Job Status
@@ -300,21 +351,42 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     actor User
-    participant UI as Spark UI
+    participant UI as Spark UI (useChat)
     participant API as /api/.../spark
-    participant P1 as Gemini 2.0 (Parser)
-    participant P2 as Gemini 2.5 (Patcher)
+    participant P1 as Gemini 2.0 Flash (Intent)
+    participant Tools as Tool Execution
     participant DB as Supabase
 
     User->>UI: "Set all prices to 19.99"
-    UI->>API: POST instruction
+    UI->>API: POST via AI SDK useChat
     API->>P1: Parse Intent
-    P1-->>API: { type: "modify", fields: ["price"] }
-    API->>DB: Fetch current lines (filtered)
-    API->>P2: Generate Patch
-    P2-->>API: JSON Patches
-    API->>DB: Apply Updates
-    API-->>UI: Success + Summary
+    P1-->>API: { type: "modify", fields: ["price"], allRows: true }
+    API->>DB: Fetch line items (filtered by intent)
+    API->>Tools: Execute patch_items tool
+    Tools->>DB: Apply updates, return full items
+    Tools-->>API: PatchItemsResult (with sessionId for undo)
+    API-->>UI: Streamed response + tool results
+    UI->>UI: Optimistic UI update with returned items
+```
+
+### 6.3 Export Flow
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant UI as Export Dialog
+    participant API as /api/export
+    participant Export as Export Module
+    participant DB as Supabase
+
+    User->>UI: Select export config + click Export
+    UI->>API: POST { order_id, export_config_idx }
+    API->>DB: Fetch order + line items + profile
+    API->>Export: exportRecords(records, outputProfile)
+    Export->>Export: Map fields via Output Profile
+    Export->>Export: Serialize to CSV/JSON
+    Export-->>API: { data, filename, content_type }
+    API-->>UI: File download
 ```
 
 ---
@@ -328,7 +400,6 @@ flowchart TB
     subgraph Vercel
         Next[Next.js Application]
         API[Serverless Functions]
-        Edge[Edge Runtime]
     end
 
     subgraph Supabase
@@ -338,27 +409,27 @@ flowchart TB
     end
 
     subgraph External APIs
-        OpenAI[OpenAI API]
         Gemini[Google Gemini API]
+        OpenAI[OpenAI API]
     end
 
     Next --> API
     API --> PG
     API --> Auth
-    API --> OpenAI
     API --> Gemini
+    API --> OpenAI
 ```
 
 ### 7.2 Environment Configuration
 
-| Variable                        | Purpose                              |
-| ------------------------------- | ------------------------------------ |
-| `NEXT_PUBLIC_SUPABASE_URL`      | Supabase project URL                 |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anonymous key               |
-| `SUPABASE_SERVICE_ROLE_KEY`     | Server-side admin operations         |
-| `OPENAI_API_KEY`                | GPT-4o Vision access                 |
-| `GOOGLE_GENERATIVE_AI_KEY`      | Google Gemini access for Spark       |
-| `MOCK_EXTERNAL_APIS`            | Enable mock adapters for development |
+| Variable                               | Purpose                              |
+| -------------------------------------- | ------------------------------------ |
+| `NEXT_PUBLIC_SUPABASE_URL`             | Supabase project URL                 |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable (anon) key      |
+| `SUPABASE_SECRET_KEY`                  | Server-side admin operations         |
+| `GEMINI_API_KEY`                       | Google Gemini access (primary AI)    |
+| `OPENAI_API_KEY`                       | GPT-4o Vision access (optional)      |
+| `MOCK_EXTERNAL_APIS`                   | Enable mock adapters for development |
 
 ---
 
@@ -373,13 +444,36 @@ CREATE POLICY "Tenant isolation" ON table_name
     FOR ALL USING (tenant_id = get_user_tenant_id());
 ```
 
-### 8.2 Spark In-Memory Sessions
+### 8.2 Schema Master Pattern
 
-To support "Undo" functionality without complex database versioning, Spark maintains short-lived sessions in memory (or ephemeral storage) to track recent patches. This allows users to revert the last AI action immediately.
+Spark tools and extraction schemas are dynamically generated from the active Processing Profile's field definitions. This ensures:
+
+- Tool parameters validate against actual profile field types
+- Extraction schemas match the expected output structure
+- No hardcoded field assumptions exist in the AI layer
 
 ### 8.3 Unified Profiles
 
-Recent architectural shifts moved towards "Unified Profiles" which consolidate prompt definitions and extraction rules into a single schema to reduce complexity between different AI models.
+Input Profiles and Output Profiles have been consolidated into a single `input_profiles` table (migration `021_unified_profiles.sql`). Each profile contains:
+
+- Intake field definitions
+- SKU template configuration
+- One or more embedded Export Configs (previously stored in a separate `output_profiles` table)
+
+A backwards-compatible `processing_profiles` view exists over `input_profiles` for transition purposes.
+
+### 8.4 Catalog System
+
+The normalization system was renamed from "Code Lookups" to "Catalogs" (migration `023_rename_lookups_to_catalogs.sql`):
+
+- `code_lookups` → `catalog_entries`
+- `lookup_column_defs` → `catalog_fields`
+
+Catalogs support custom columns per type via `extra_data` JSONB and the `catalog_fields` table.
+
+### 8.5 Spark Undo & Sessions
+
+To support "Undo" functionality, Spark tool results include a `sessionId`. Each `patch_items` call stores `previous_data` per line item, enabling immediate revert of the last AI action without complex database versioning.
 
 ---
 
@@ -387,24 +481,35 @@ Recent architectural shifts moved towards "Unified Profiles" which consolidate p
 
 ### ADR-1: Profile-Required Processing
 
-**Decision:** All PDF processing requires an explicit Input Profile selection.
+**Decision:** All PDF processing requires an explicit Input Profile selection.  
 **Consequences:** Consistent data, no magic defaults.
 
-### ADR-2: Dual-Stage Profile Architecture
+### ADR-2: Unified Profile Architecture
 
-**Decision:** Separate Input Profiles (ingestion) from Output Profiles (egress).
-**Consequences:** Greater flexibility and reuse.
+**Decision:** Consolidate Input Profiles and Output Profiles into a single record with embedded Export Configs.  
+**Consequences:** Simplified management, single source of truth per workflow. Output Profiles table dropped.
 
 ### ADR-3: Supabase with Row-Level Security
 
-**Decision:** Use Supabase PostgreSQL with RLS.
+**Decision:** Use Supabase PostgreSQL with RLS.  
 **Consequences:** Built-in security; explicit `tenant_id` handling.
 
-### ADR-4: Hybrid AI Strategy (GPT-4o + Gemini)
+### ADR-4: Gemini-First AI Strategy
 
-**Context:** GPT-4o is excellent at Vision but expensive/slower for high-frequency chat.
-**Decision:** Use **GPT-4o Vision** for initial extraction and **Google Gemini** (Flash models) for the Spark conversational assistant.
-**Consequences:** Optimizes cost and latency. "Spark" feels snappy (Flash 2.0) while extraction remains high-fidelity.
+**Context:** The application requires AI for extraction, Spark chat, intent parsing, and AI enrichment.  
+**Decision:** Use **Google Gemini** as the primary AI provider for all capabilities. Gemini 3 Flash for extraction and Spark, Gemini 2.0 Flash for fast intent parsing. GPT-4o available as optional alternative for extraction only.  
+**Consequences:** Single API key simplifies deployment. Superior speed/cost ratio. AI SDK v6 abstracts provider differences.
+
+### ADR-5: AI SDK v6 with Typed Schemas
+
+**Context:** Extraction needs to be type-safe and profile-driven.  
+**Decision:** Use Vercel AI SDK v6 `generateObject` with dynamic Zod schemas built from profile fields.  
+**Consequences:** Type-safe extraction results, automatic validation, unified interface across providers.
+
+### ADR-6: Schema Master for Spark Tools
+
+**Decision:** Spark tool schemas are dynamically generated from the active profile's field definitions.  
+**Consequences:** Tools validate against real field types, no hardcoded field assumptions, tools adapt to any profile.
 
 ---
 
@@ -423,26 +528,32 @@ Recent architectural shifts moved towards "Unified Profiles" which consolidate p
 
 ## 11. Risks and Technical Debt
 
-| Risk/Debt            | Description                                | Mitigation                                 |
-| -------------------- | ------------------------------------------ | ------------------------------------------ |
-| **AI Dependency**    | Reliance on two separate AI providers      | Abstracted client layers; fallback options |
-| **Session State**    | Spark Undo relies on ephemeral state       | Move to DB-backed audit log in future      |
-| **Schema Evolution** | Profile field changes affect existing data | Migration scripts; template regeneration   |
+| Risk/Debt                  | Description                                                      | Mitigation                                                 |
+| -------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------- |
+| **AI Provider Dependency** | Heavy reliance on Google Gemini across all features              | AI SDK abstracts providers; GPT-4o fallback for extraction |
+| **Spark Session State**    | Undo relies on in-memory previous data per patch                 | Move to DB-backed audit log in future                      |
+| **Schema Evolution**       | Profile field changes affect existing data                       | Migration scripts; template regeneration                   |
+| **Legacy Code Paths**      | Deprecated `@google/genai` client still present alongside AI SDK | Consolidate to AI SDK-only in future                       |
+| **Mock-Only Shopify**      | Shopify adapter runs in mock mode only                           | Implement real API integration when needed                 |
 
 ---
 
 ## 12. Glossary
 
-| Term                | Definition                                                                |
-| ------------------- | ------------------------------------------------------------------------- |
-| **Spark**           | The conversational AI assistant for data transformation.                  |
-| **Intent Parser**   | Spark Phase 1: Identifies what the user wants to do (Gemini 2.0).         |
-| **Patch Generator** | Spark Phase 2: Creates the actual data changes (Gemini 2.5/3.0).          |
-| **Draft Order**     | A processing run containing extracted line items awaiting validation.     |
-| **Input Profile**   | Configuration defining AI extraction, normalization, and computed fields. |
-| **Output Profile**  | Configuration defining field mapping and export format.                   |
-| **Unified Profile** | The consolidated schema for defining intake rules.                        |
-| **Tenant**          | Isolated organization account with its own data and configurations.       |
+| Term                    | Definition                                                                       |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| **Spark**               | The conversational AI assistant for data transformation and analysis.            |
+| **Intent Parser**       | Spark Phase 1: Identifies what the user wants to do (Gemini 2.0 Flash).          |
+| **Tool Calling**        | Spark Phase 2: Executes actions via native LLM tool schemas.                     |
+| **Schema Master**       | Pattern where tool/extraction schemas are dynamically built from profile fields. |
+| **Draft Order**         | A processing run containing extracted line items awaiting validation.            |
+| **Input Profile**       | Unified configuration: intake fields + export configs + SKU template.            |
+| **Export Config**       | Embedded configuration defining field mapping and export format.                 |
+| **Catalog Entry**       | A normalization value with name, code, aliases, and optional custom data.        |
+| **Catalog Match Guide** | AI prompt injection that lists valid catalog names for semantic matching.        |
+| **Tenant**              | Isolated organization account with its own data and configurations.              |
+| **Line Item**           | A single product row in a draft order with raw and normalized data.              |
+| **Computed Field**      | A virtual field whose value is generated from a template or AI enrichment.       |
 
 ---
 

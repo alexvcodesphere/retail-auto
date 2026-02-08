@@ -12,29 +12,29 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your-key
 SUPABASE_SECRET_KEY=sb_secret_your-key
 
-## Azure Document Intelligence
+## Gemini (Primary AI — extraction, Spark, enrichment)
 
-AZURE_DOCUMENT_ENDPOINT=https://your-resource.cognitiveservices.azure.com/
-AZURE_DOCUMENT_KEY=your-azure-key
+GEMINI_API_KEY=your-gemini-key
 
-## OpenAI (for GPT-based extraction)
+## OpenAI (Optional — GPT-4o Vision extraction)
 
 OPENAI_API_KEY=your-openai-key
 
-## Gemini (alternative vision model)
+## Azure Document Intelligence (Optional)
 
-GEMINI_API_KEY=your-gemini-key
+AZURE_DOCUMENT_ENDPOINT=https://your-resource.cognitiveservices.azure.com/
+AZURE_DOCUMENT_KEY=your-azure-key
 
 ## Feature Flags
 
 MOCK_EXTERNAL_APIS=true
 
-## Xentral (mocked by default)
+## Xentral (Mocked by default)
 
 XENTRAL_API_URL=https://your-xentral.xentral.biz/api/
 XENTRAL_API_KEY=your-xentral-key
 
-## Shopware (mocked by default)
+## Shopware (Mocked by default)
 
 SHOPWARE_API_URL=https://your-shopware.com/api/
 SHOPWARE_API_KEY=your-shopware-key

@@ -6,9 +6,7 @@
  */
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChevronRight, FileInput, FileOutput, BookOpen } from "lucide-react";
 import {
     Select,
     SelectContent,
@@ -28,26 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { SPARK_MODELS, VISION_MODELS, type SparkModel, type VisionModel } from "@/lib/extraction/types";
 
-const configSections = [
-    {
-        title: "Input Profiles",
-        description: "Extraction fields and normalization",
-        href: "/dashboard/settings/processing",
-        icon: FileInput,
-    },
-    {
-        title: "Output Profiles",
-        description: "Field mappings for export",
-        href: "/dashboard/settings/output",
-        icon: FileOutput,
-    },
-    {
-        title: "Code Lookups",
-        description: "Brand, category, and color codes",
-        href: "/dashboard/settings/lookups",
-        icon: BookOpen,
-    },
-];
+
 
 const integrations = [
     { name: "Shopware 6", status: "env", statusLabel: "Configured via .env" },
@@ -378,27 +357,7 @@ export default function SettingsPage() {
                 </p>
             </div>
 
-            {/* Navigation Cards */}
-            <div className="grid gap-3 md:grid-cols-3">
-                {configSections.map((section) => (
-                    <Link key={section.href} href={section.href}>
-                        <Card className="group cursor-pointer h-full hover:border-primary/50 hover:bg-muted/30 transition-all">
-                            <CardContent className="flex items-center justify-between p-4">
-                                <div className="flex items-center gap-3">
-                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                                        <section.icon className="h-4 w-4" />
-                                    </div>
-                                    <div>
-                                        <p className="text-sm font-medium">{section.title}</p>
-                                        <p className="text-xs text-muted-foreground">{section.description}</p>
-                                    </div>
-                                </div>
-                                <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-                            </CardContent>
-                        </Card>
-                    </Link>
-                ))}
-            </div>
+
 
             {/* Preferences */}
             <Card>

@@ -8,10 +8,12 @@ Ingestry is a Next.js application built to streamline fashion retail workflows. 
 
 ### Core Features
 
-- **AI-Powered PDF Extraction**: Utilizes GPT-4o Vision to extract product data from order confirmations.
-- **Dynamic Processing Profiles**: Allows for configurable field extraction, normalization, and SKU generation.
-- **Lookup-Based Normalization**: Employs fuzzy matching with aliases for various product attributes.
-- **Template-Based SKU Generation**: Provides configurable SKU templates with variable substitution.
+- **AI-Powered PDF Extraction**: Uses Gemini 3 Flash (default) or GPT-4o Vision to extract product data via AI SDK v6 with Zod schemas.
+- **Spark Assistant**: Conversational AI (Gemini-powered) for natural language data transformation with native tool calling.
+- **Unified Processing Profiles**: Configurable field extraction, normalization, computed fields (templates + AI enrichment), and embedded export configs.
+- **Catalog-Based Normalization**: Fuzzy matching with aliases, compound value handling, and AI-assisted catalog matching.
+- **Template-Based SKU Generation**: Configurable SKU templates with variable substitution and catalog code lookups.
+- **Multi-Format Export**: Modular export (CSV/JSON) with field mapping via embedded Output Profiles.
 - **Multi-Shop Export**: Includes adapters for Shopware 6, Xentral ERP, and Shopify.
 - **Multi-Tenant Architecture**: Ensures complete tenant isolation using Supabase Row-Level Security.
 
@@ -22,8 +24,9 @@ Ingestry is a Next.js application built to streamline fashion retail workflows. 
 - **Styling**: Tailwind CSS 4
 - **Components**: shadcn/ui
 - **Database**: Supabase (PostgreSQL)
-- **AI**: OpenAI GPT-4o Vision
-- **Document Analysis**: Azure Document Intelligence
+- **AI SDK**: Vercel AI SDK v6 (`generateObject`, `useChat`)
+- **AI Models**: Google Gemini 3 Flash (primary), Gemini 2.0 Flash (intent), OpenAI GPT-4o (optional)
+- **Document Analysis**: Azure Document Intelligence (optional)
 
 ## Building and Running
 
