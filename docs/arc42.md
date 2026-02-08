@@ -125,15 +125,15 @@ flowchart TB
         App[Ingestry Application]
     end
 
-    User -->|Uploads PDFs| App
-    User -->|Chat / Transformations| App
-    PDF -->|Raw Documents| App
-    App -->|Extraction + Spark + Enrichment| Gemini
-    App -->|Vision API (optional)| OpenAI
-    App -->|Document Analysis| Azure
-    App -->|Product Export| Shopware
-    App -->|Product Export| Xentral
-    App -->|Product Export| Shopify
+    User -->|"Uploads PDFs"| App
+    User -->|"Chat / Transformations"| App
+    PDF -->|"Raw Documents"| App
+    App -->|"Extraction + Spark + Enrichment"| Gemini
+    App -->|"Vision API (optional)"| OpenAI
+    App -->|"Document Analysis"| Azure
+    App -->|"Product Export"| Shopware
+    App -->|"Product Export"| Xentral
+    App -->|"Product Export"| Shopify
 ```
 
 ### 3.2 Technical Context
